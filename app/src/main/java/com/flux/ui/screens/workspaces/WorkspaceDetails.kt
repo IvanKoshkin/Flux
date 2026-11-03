@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -16,6 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import com.flux.data.model.WorkspaceModel
@@ -40,6 +44,7 @@ import com.flux.ui.screens.progressBoard.ProgressTrackerScreen
 import com.flux.ui.screens.todo.TodoScreen
 import com.flux.ui.state.States
 import com.flux.ui.viewModel.ViewModels
+import kotlin.math.abs
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,30 +87,67 @@ fun WorkspaceDetails(
             viewModels.settingsViewModel.saveRootUri(uri)
         }
 
-    SpaceMapper(
-        navController = navController,
-        workspace = workspace,
-        spaceId = selectedSpaceId.intValue,
-        states = states,
-        viewModels = viewModels,
-        onAddCover = {
-            ensureStorageRoot(
-                scope = scope,
-                settingsViewModel = viewModels.settingsViewModel,
-                rootPicker = rootPicker
-            ) { imagePickerLauncher.launch("image/*") }
-        },
-        onRemoveCover = { viewModels.workspaceViewModel.onEvent(WorkspaceEvents.UpsertSpace(workspace.copy(cover = ""))) },
-        onDeleteWorkspace = { isDeleteDialogVisible = true },
-        onToggleLock = {
-            if(workspace.isLocked) {
-                viewModels.workspaceViewModel.onEvent(WorkspaceEvents.UpsertSpace(workspace.removePasskey()))
-            }
-            else { isPasskeyDialogVisible = true }
-        },
-        onSpaceChange = { selectedSpaceId.intValue = it },
-        onShowSpaceBottomSheet = { showBottomSheet = true },
-    )
+    Box(
+        Modifier.pointerInput(Unit){
+            var totalDrag = 0f
+            var changed = false
+
+            detectHorizontalDragGestures(
+                onHorizontalDrag = {_, dragAmount ->
+                    totalDrag += dragAmount
+                    if(!changed && abs(totalDrag)>=15f) {
+                        val spaces = workspace.selectedSpaces
+                        val currentIndex = spaces.indexOf(selectedSpaceId.intValue)
+                        val newIndex = if(totalDrag < 0) currentIndex + 1 else currentIndex - 1
+                        if(newIndex in spaces.indices) {
+                            selectedSpaceId.intValue = spaces[newIndex]
+                        }
+                        changed = true;
+                    }
+                },
+                onDragEnd = {
+                    totalDrag = 0f
+                    changed = false
+                },
+                onDragCancel = {
+                    totalDrag = 0f
+                    changed = false
+                }
+            )
+        }
+    ) {
+        SpaceMapper(
+            navController = navController,
+            workspace = workspace,
+            spaceId = selectedSpaceId.intValue,
+            states = states,
+            viewModels = viewModels,
+            onAddCover = {
+                ensureStorageRoot(
+                    scope = scope,
+                    settingsViewModel = viewModels.settingsViewModel,
+                    rootPicker = rootPicker
+                ) { imagePickerLauncher.launch("image/*") }
+            },
+            onRemoveCover = {
+                viewModels.workspaceViewModel.onEvent(
+                    WorkspaceEvents.UpsertSpace(
+                        workspace.copy(cover = "")
+                    )
+                )
+            },
+            onDeleteWorkspace = { isDeleteDialogVisible = true },
+            onToggleLock = {
+                if (workspace.isLocked) {
+                    viewModels.workspaceViewModel.onEvent(WorkspaceEvents.UpsertSpace(workspace.removePasskey()))
+                } else {
+                    isPasskeyDialogVisible = true
+                }
+            },
+            onSpaceChange = { selectedSpaceId.intValue = it },
+            onShowSpaceBottomSheet = { showBottomSheet = true },
+        )
+    }
 
     if (isPasskeyDialogVisible) {
         SetPasskeyDialog(
